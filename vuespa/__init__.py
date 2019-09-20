@@ -4,10 +4,12 @@
 
     class Client(vuespa.Client):
         async def vuespa_on_open(self):
-            print("Client connected!")
+            print("Client connected")
 
+        async def vuespa_on_close(self):
+            print("Client disconnected")
 
-        async def shoe(self, arg1):
+        async def api_shoe(self, arg1):
             return f'Got {arg1}'
 
     vuespa.VueSpa.run('vue.app', Client)
@@ -16,7 +18,7 @@
 
 3. Edit ``vue.app/src/main.ts`` (if typescript) with:
 
-    declare var VueSpaBackend:any;
+    declare var VueSpaBackend: any;
     Vue.use(VueSpaBackend);
 
 4. Edit ``vue.app/public/index.html`` with:
@@ -97,9 +99,12 @@ class VueSpa:
             async with aiohttp.ClientSession() as session:
                 with async_timeout.timeout(10):
                     async with session.get(f'http://{self.host}:{self.vue_port}/{path}') as response:
-                        ctype = response.headers['Content-Type'].split(';', 1)[0]
+                        kwargs = {}
+                        ctype = response.headers.get('Content-Type')
+                        if ctype is not None:
+                            kwargs['content_type'] = ctype.split(';', 1)[0]
                         return web.Response(body=await response.read(),
-                                content_type=ctype)
+                                **kwargs)
 
 
     async def _handle_vuespa_js(self, req):
@@ -107,14 +112,41 @@ class VueSpa:
         body = """
             VueSpaBackend = {
                 install: function(Vue) {
+                    if (Object.hasOwnProperty(VueSpaBackend, 'installed')) {
+                        return;
+                    }
+                    VueSpaBackend.installed = true;
+
                     Object.defineProperty(Vue.prototype, '$vuespa', {
                         get: function get () {
                             return new VueSpaBackendWrapper(this);
                         }
                     });
 
-                    var ws = VueSpaBackend._socket = new WebSocket('""" + ws_string + """');
-                    ws.onmessage = VueSpaBackend._onmessage;
+                    let ws;
+                    function ws_retry() {
+                        ws = VueSpaBackend._socket = new WebSocket('""" + ws_string + """');
+                        ws.onopen = function(ev) {
+                            console.log("WS open");
+                        };
+                        ws.onerror = function(ev) {
+                            console.log("WS error... will close and retry");
+                            ws.close();
+                        };
+                        ws.onmessage = VueSpaBackend._onmessage;
+                        ws.onclose = function(ev) {
+                            console.log("WS closed... will retry");
+                            setTimeout(ws_retry, 3000);
+                        };
+                    }
+                    ws_retry();
+                },
+                send: function(msg) {
+                    if (VueSpaBackend._socket.readyState !== 1) {
+                        setTimeout(function() { VueSpaBackend.send(msg); }, 300);
+                        return;
+                    }
+                    VueSpaBackend._socket.send(msg);
                 },
                 _socket: null,
                 _onmessage: function(event) {
@@ -142,6 +174,8 @@ class VueSpa:
                 _pending: new Map(),
                 _pendingNext: 0,
             };
+
+
             class VueSpaBackendWrapper {
                 constructor(obj) {
                     this._obj = obj;
@@ -150,7 +184,7 @@ class VueSpa:
                     let id = VueSpaBackend._pendingNext++;
                     let p = new Promise((resolve, reject) => {
                         VueSpaBackend._pending.set(id, [resolve, reject]);
-                        VueSpaBackend._socket.send(JSON.stringify({
+                        VueSpaBackend.send(JSON.stringify({
                             type: 'call',
                             id, meth, args,
                         }));
@@ -178,11 +212,11 @@ class VueSpa:
                     meth = msg['meth']
                     args = msg['args']
 
+                    api_meth = f'api_{meth}'
+
                     try:
-                        if meth.startswith('vuespa_'):
-                            raise ValueError('Cannot remotely call vuespa_*')
-                        _log.info(f'Calling {meth}(*{args})')
-                        response = await getattr(client, meth)(*args)
+                        _log.info(f'Calling {api_meth}(*{args})')
+                        response = await getattr(client, api_meth)(*args)
                         await websocket.send(json.dumps({
                                 'type': 'resp',
                                 'id': call_id,

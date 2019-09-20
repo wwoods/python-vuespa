@@ -20,7 +20,7 @@ Example usage (from `vuespa/__init__.py`):
 
 3. Edit ``vue.app/src/main.ts`` (if typescript) with:
 
-    declare var VueSpaBackend:any;
+    declare var VueSpaBackend: any;
     Vue.use(VueSpaBackend);
 
 4. Edit ``vue.app/public/index.html`` with:
