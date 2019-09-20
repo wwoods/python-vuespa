@@ -31,10 +31,11 @@
 import aiohttp
 import aiohttp.web as web
 import asyncio
-import async_timeout
 import json
 import logging
+import sys
 import traceback
+import webbrowser
 import websockets
 
 _log = logging.getLogger('vuespa')
@@ -54,10 +55,16 @@ class VueSpa:
         self._vue_path = vue_path
         self._client_class = client_class
         self._development = development
+        self._first_request = True
 
 
     def run(self):
-        loop = asyncio.get_event_loop()
+        # Windows-compatible, with subprocess support:
+        if sys.platform.startswith('win'):
+            loop = asyncio.ProactorEventLoop()
+            asyncio.set_event_loop(loop)
+        else:
+            loop = asyncio.get_event_loop()
 
         html_app = web.Application()
         html_app.router.add_get('/vuespa.js', self._handle_vuespa_js)
@@ -68,13 +75,19 @@ class VueSpa:
         ws_server = loop.run_until_complete(websockets.serve(
                 self._handle_ws, self.host, self.port+1))
 
+        promises = [html_server]
         if self._development:
-            print("** for now, run 'npm run serve' to get vue running in "
-                    "development mode.")
+            ui_proc = loop.run_until_complete(asyncio.create_subprocess_shell(
+                "npx --no-install vue-cli-service serve --port 8080",
+                cwd=self._vue_path))
+            promises.append(ui_proc.communicate())
 
+        webbrowser.open(f'http://{self.host}:{self.port}')
         try:
-            loop.run_until_complete(html_server)
+            loop.run_until_complete(asyncio.wait(promises,
+                    return_when=asyncio.FIRST_COMPLETED))
         finally:
+            ui_proc.kill()
             ws_server.close()
             html_server.close()
 
@@ -84,7 +97,6 @@ class VueSpa:
 
         if not self._development:
             # Fetch from "dist" folder
-            raise NotImplementedError("TODO")
             ext = path.rsplit('.', 1)
             ctype = 'text/plain'
             if len(ext) == 2:
@@ -93,18 +105,29 @@ class VueSpa:
                     ctype = 'text/css'
                 elif ext == 'js':
                     ctype = 'text/javascript'
-            return ctype, open(os.path.join('dist', *path.split('/')), 'rb').read()
+            return ctype, open(os.path.join(self._vue_path, 'dist',
+                    *path.split('/')), 'rb').read()
         else:
             # Fetch from vue http server
             async with aiohttp.ClientSession() as session:
-                with async_timeout.timeout(10):
-                    async with session.get(f'http://{self.host}:{self.vue_port}/{path}') as response:
-                        kwargs = {}
-                        ctype = response.headers.get('Content-Type')
-                        if ctype is not None:
-                            kwargs['content_type'] = ctype.split(';', 1)[0]
-                        return web.Response(body=await response.read(),
-                                **kwargs)
+                while True:
+                    try:
+                        async with session.get(
+                                f'http://{self.host}:{self.vue_port}/{path}'
+                                ) as response:
+                            if self._first_request:
+                                self._first_request = False
+
+                            kwargs = {}
+                            ctype = response.headers.get('Content-Type')
+                            if ctype is not None:
+                                kwargs['content_type'] = ctype.split(';', 1)[0]
+                            return web.Response(body=await response.read(),
+                                    **kwargs)
+                    except (aiohttp.client_exceptions.ClientConnectorError,
+                            aiohttp.client_exceptions.ClientOSError):
+                        if not self._first_request:
+                            raise
 
 
     async def _handle_vuespa_js(self, req):
