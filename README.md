@@ -11,7 +11,7 @@ Example usage (from `vuespa/__init__.py`):
             print("Client connected!")
 
 
-        async def shoe(self, arg1):
+        async def api_shoe(self, arg1):
             return f'Got {arg1}'
 
     vuespa.VueSpa.run('vue.app', Client)

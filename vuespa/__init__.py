@@ -33,6 +33,7 @@ import aiohttp.web as web
 import asyncio
 import json
 import logging
+import os
 import sys
 import traceback
 import webbrowser
@@ -77,6 +78,11 @@ class VueSpa:
 
         promises = [html_server]
         if self._development:
+            # Ensure node process is installed first.
+            if not os.path.lexists(os.path.join(self._vue_path, 'node_modules')):
+                node_install = loop.run_until_complete(asyncio.create_subprocess_shell(
+                    'npm install', cwd=self._vue_path))
+                loop.run_until_complete(node_install.communicate())
             ui_proc = loop.run_until_complete(asyncio.create_subprocess_shell(
                 "npx --no-install vue-cli-service serve --port 8080",
                 cwd=self._vue_path))
