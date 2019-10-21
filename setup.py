@@ -5,7 +5,7 @@ with open('README.md') as f:
 
 setuptools.setup(
         name="vuespa",
-        version="0.2.0",
+        version="0.2.1",
         author="Walt Woods",
         author_email="woodswalben@gmail.com",
         description="Helper library for Python+Vue Single Page Applications",
@@ -13,6 +13,10 @@ setuptools.setup(
         long_description_content_type='text/markdown',
         url='https://github.com/wwoods/python-vuespa',
         packages=setuptools.find_packages(),
+        install_requires=[
+            'aiohttp',
+            'websockets',
+        ],
         classifiers=[
             "Programming Language :: Python :: 3",
             "License :: OSI Approved :: MIT License",
