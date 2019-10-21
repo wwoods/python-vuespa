@@ -82,7 +82,7 @@ class VueSpa:
                 'npm install', cwd=self._vue_path))
             loop.run_until_complete(node_install.communicate())
 
-        promises = [html_server, ws_server]
+        promises = [html_server]
         ui_proc = None
         if self._development:
             # Ensure node process is installed first.
