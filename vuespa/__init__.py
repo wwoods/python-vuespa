@@ -76,24 +76,33 @@ class VueSpa:
         ws_server = loop.run_until_complete(websockets.serve(
                 self._handle_ws, self.host, self.port+1))
 
-        promises = [html_server]
+        # Install node packages if no node_modules folder.
+        if not os.path.lexists(os.path.join(self._vue_path, 'node_modules')):
+            node_install = loop.run_until_complete(asyncio.create_subprocess_shell(
+                'npm install', cwd=self._vue_path))
+            loop.run_until_complete(node_install.communicate())
+
+        promises = [html_server, ws_server]
+        ui_proc = None
         if self._development:
             # Ensure node process is installed first.
-            if not os.path.lexists(os.path.join(self._vue_path, 'node_modules')):
-                node_install = loop.run_until_complete(asyncio.create_subprocess_shell(
-                    'npm install', cwd=self._vue_path))
-                loop.run_until_complete(node_install.communicate())
             ui_proc = loop.run_until_complete(asyncio.create_subprocess_shell(
                 "npx --no-install vue-cli-service serve --port 8080",
                 cwd=self._vue_path))
             promises.append(ui_proc.communicate())
+        elif not os.path.lexists(os.path.join(self._vue_path, 'dist')):
+            # Build UI once, otherwise use cached version
+            proc = loop.run_until_complete(asyncio.create_subprocess_shell(
+                'npm run build', cwd=self._vue_path))
+            loop.run_until_complete(proc.communicate())
 
         webbrowser.open(f'http://{self.host}:{self.port}')
         try:
             loop.run_until_complete(asyncio.wait(promises,
                     return_when=asyncio.FIRST_COMPLETED))
         finally:
-            ui_proc.kill()
+            if ui_proc is not None:
+                ui_proc.kill()
             ws_server.close()
             html_server.close()
 
@@ -103,6 +112,8 @@ class VueSpa:
 
         if not self._development:
             # Fetch from "dist" folder
+            if not path:
+                path = 'index.html'
             ext = path.rsplit('.', 1)
             ctype = 'text/plain'
             if len(ext) == 2:
@@ -111,8 +122,11 @@ class VueSpa:
                     ctype = 'text/css'
                 elif ext == 'js':
                     ctype = 'text/javascript'
-            return ctype, open(os.path.join(self._vue_path, 'dist',
-                    *path.split('/')), 'rb').read()
+                elif ext == 'html':
+                    ctype = 'text/html'
+            return web.Response(content_type=ctype,
+                    body=open(os.path.join(self._vue_path, 'dist',
+                        *path.split('/')), 'rb').read())
         elif (req.headers['connection'] == 'Upgrade'
                 and req.headers['upgrade'] == 'websocket'
                 and req.method == 'GET'):
