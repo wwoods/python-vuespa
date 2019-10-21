@@ -121,7 +121,7 @@ class VueSpa:
             ws_response = web.WebSocketResponse()
             await ws_response.prepare(req)
             async with aiohttp.ClientSession().ws_connect(
-                    'ws://{self.host}:{self.vue_port}/{path}') as ws_client:
+                    f'ws://{self.host}:{self.vue_port}/{path}') as ws_client:
                 async def ws_forward(ws_from, ws_to):
                     async for msg in ws_from:
                         mt = msg.type
