@@ -2,30 +2,37 @@
 
 1. Write Python API:
 
-    class Client(vuespa.Client):
-        async def vuespa_on_open(self):
-            print("Client connected")
 
-        async def vuespa_on_close(self):
-            print("Client disconnected")
+        class Client(vuespa.Client):
+            async def vuespa_on_open(self):
+                print("Client connected!")
 
-        async def api_shoe(self, arg1):
-            return f'Got {arg1}'
 
-    vuespa.VueSpa.run('vue.app', Client)
+            async def api_shoe(self, arg1):
+                return f'Got {arg1}'
+
+        vuespa.VueSpa('vue.app', Client).run()
+
+   Optionally, may specify `vuespa.VueSpa('vue.app', Client, port=8080).run()` to run on ports 8080, 8081, and 8082.
 
 2. Create app via ``vue create vue.app``.
 
 3. Edit ``vue.app/src/main.ts`` (if typescript) with:
 
-    declare var VueSpaBackend: any;
-    Vue.use(VueSpaBackend);
+        declare var VueSpaBackend: any;
+        Vue.use(VueSpaBackend);
 
 4. Edit ``vue.app/public/index.html`` with:
 
-    <script src="<%= BASE_URL %>vuespa.js"></script>
+        <script src="<%= BASE_URL %>vuespa.js"></script>
 
-5. Run the Python script!
+5. Add calls to the server as:
+
+    await this.$vuespa.call('shoe', 32)
+
+6. Run the Python script!  This will build the Vue application, run a Python web server on a random port, and point your web browser at the deployment.
+
+As a shortcut in e.g. template callbacks, can use `$vuespa.update('propName', 'shoe', 32)` to place the call to `api_shoe` and then set the resulting value in `propName`.
 """
 
 import aiohttp
@@ -34,6 +41,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 import traceback
 import webbrowser
@@ -42,21 +50,30 @@ import websockets
 _log = logging.getLogger('vuespa')
 
 class VueSpa:
-    vue_port = 8080
-
     @property
     def host(self):
         return 'localhost'
 
     @property
     def port(self):
-        return 8000
+        return self._port
 
-    def __init__(self, vue_path, client_class, development=True):
+    @property
+    def port_vue(self):
+        return self._port_vue
+
+    @property
+    def port_ws(self):
+        return self._port_ws
+
+    def __init__(self, vue_path, client_class, port=None, development=True):
         self._vue_path = vue_path
         self._client_class = client_class
         self._development = development
         self._first_request = True
+        self._port = port
+        self._port_vue = None
+        self._port_ws = None
 
 
     def run(self):
@@ -70,11 +87,19 @@ class VueSpa:
         html_app = web.Application()
         html_app.router.add_get('/vuespa.js', self._handle_vuespa_js)
         html_app.router.add_get('/{path:.*}', self._handle_vue)
-        html_server = web._run_app(html_app, host=self.host,
-                port=self.port)
+
+        # Run the application on a randomly selected port (or specified port)
+        if self._port is not None:
+            self._port_vue = self._port + 1
+            self._port_ws = self._port + 2
+        html_server_handler = html_app.make_handler()
+        html_server = loop.run_until_complete(
+                loop.create_server(html_server_handler, self.host, self._port))
+        self._port = html_server.sockets[0].getsockname()[1]
 
         ws_server = loop.run_until_complete(websockets.serve(
-                self._handle_ws, self.host, self.port+1))
+                self._handle_ws, self.host, self._port_ws))
+        self._port_ws = ws_server.sockets[0].getsockname()[1]
 
         # Install node packages if no node_modules folder.
         if not os.path.lexists(os.path.join(self._vue_path, 'node_modules')):
@@ -82,14 +107,38 @@ class VueSpa:
                 'npm install', cwd=self._vue_path))
             loop.run_until_complete(node_install.communicate())
 
-        promises = [html_server]
+        promises = []
         ui_proc = None
         if self._development:
             # Ensure node process is installed first.
             ui_proc = loop.run_until_complete(asyncio.create_subprocess_shell(
-                "npx --no-install vue-cli-service serve --port 8080",
+                "FORCE_COLOR=1 npx --no-install vue-cli-service serve",
+                stdout=asyncio.subprocess.PIPE,
+                # Leave stderr connected
                 cwd=self._vue_path))
-            promises.append(ui_proc.communicate())
+
+            # We need to get the port first, so read lines from stdout until we
+            # find that information.  Then, communicate.
+            async def streamer(stream_in, stream_out, re_stop=None):
+                """Returns `None` on process exit, or a regex Match object.
+                """
+                while True:
+                    line = await stream_in.readline()
+                    if not line:
+                        break
+                    line = line.decode()
+                    stream_out.write(line)
+                    if re_stop is not None:
+                        m = re.search(re_stop, line)
+                        if m is not None:
+                            return m
+            m = loop.run_until_complete(streamer(ui_proc.stdout,
+                sys.stdout,
+                # Note that regex looks weird because we must strip color code
+                re_stop=re.compile('- Local: .*?http://[^:]+:\x1b\\[[^m]*m(?P<port>\d+)')))
+            self._port_vue = int(m.group('port'))
+            promises.append(streamer(ui_proc.stdout, sys.stdout))
+            promises.append(ui_proc.wait())
         elif not os.path.lexists(os.path.join(self._vue_path, 'dist')):
             # Build UI once, otherwise use cached version
             proc = loop.run_until_complete(asyncio.create_subprocess_shell(
@@ -98,13 +147,23 @@ class VueSpa:
 
         webbrowser.open(f'http://{self.host}:{self.port}')
         try:
-            loop.run_until_complete(asyncio.wait(promises,
-                    return_when=asyncio.FIRST_COMPLETED))
+            # Terminate either when a child process terminates OR when a
+            # KeyboardInterrupt is sent.
+            if promises:
+                loop.run_until_complete(asyncio.wait(promises,
+                        return_when=asyncio.FIRST_COMPLETED))
+            else:
+                # Nothing will terminate early.
+                loop.run_forever()
+        except KeyboardInterrupt:
+            pass
         finally:
             if ui_proc is not None:
                 ui_proc.kill()
             ws_server.close()
+            loop.run_until_complete(ws_server.wait_closed())
             html_server.close()
+            loop.run_until_complete(html_server.wait_closed())
 
 
     async def _handle_vue(self, req):
@@ -135,7 +194,7 @@ class VueSpa:
             ws_response = web.WebSocketResponse()
             await ws_response.prepare(req)
             async with aiohttp.ClientSession().ws_connect(
-                    f'ws://{self.host}:{self.vue_port}/{path}') as ws_client:
+                    f'ws://{self.host}:{self.port_vue}/{path}') as ws_client:
                 async def ws_forward(ws_from, ws_to):
                     async for msg in ws_from:
                         mt = msg.type
@@ -168,7 +227,7 @@ class VueSpa:
                 while True:
                     try:
                         async with session.get(
-                                f'http://{self.host}:{self.vue_port}/{path}'
+                                f'http://{self.host}:{self.port_vue}/{path}'
                                 ) as response:
                             if self._first_request:
                                 self._first_request = False
@@ -183,7 +242,7 @@ class VueSpa:
 
 
     async def _handle_vuespa_js(self, req):
-        ws_string = f'ws://{self.host}:{self.port+1}'
+        ws_string = f'ws://{self.host}:{self.port_ws}'
         body = """
             VueSpaBackend = {
                 install: function(Vue) {
