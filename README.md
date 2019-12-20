@@ -30,11 +30,23 @@ Example usage (from `vuespa/__init__.py`):
 
         <script src="<%= BASE_URL %>vuespa.js"></script>
 
-5. Add calls to the server as:
+5. Create ``vue.app/src/shims-vuespa.d.ts``, to silence Typescript errors, with:
+
+        import Vue from 'vue';
+        declare module 'vue' {
+          export default interface Vue {
+            $vuespa: {
+              call: (fn: string, ...args: any[]),
+              update: (name: string, fn: string, ...args: any[]),
+            };
+          }
+        }
+
+6. Add calls to the server as:
 
     await this.$vuespa.call('shoe', 32)
 
-6. Run the Python script!  This will build the Vue application, run a Python web server on a random port, and point your web browser at the deployment.
+7. Run the Python script!  This will build the Vue application, run a Python web server on a random port, and point your web browser at the deployment.
 
 As a shortcut in e.g. template callbacks, can use `$vuespa.update('propName', 'shoe', 32)` to place the call to `api_shoe` and then set the resulting value in `propName`.
 
