@@ -64,7 +64,7 @@ _log = logging.getLogger('vuespa')
 class VueSpa:
     @property
     def host(self):
-        return 'localhost'
+        return self._host
 
     @property
     def port(self):
@@ -78,11 +78,18 @@ class VueSpa:
     def port_ws(self):
         return self._port_ws
 
-    def __init__(self, vue_path, client_class, port=None, development=True):
+    def __init__(self, vue_path, client_class, host=None, port=None,
+            development=True):
         self._vue_path = vue_path
         self._client_class = client_class
         self._development = development
         self._first_request = True
+        self._host = host
+        if self._host is None and development:
+            # In e.g. Docker, 'localhost' would sometimes resolve to an IPV6
+            # address which is unsupported by some modules.  Better to clarify
+            # IPV4 support by using the localhost address directly.
+            self._host = '127.0.0.1'
         self._port = port
         self._port_vue = None
         self._port_ws = None

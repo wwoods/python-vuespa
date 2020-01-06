@@ -51,6 +51,7 @@ Example usage (from `vuespa/__init__.py`):
 As a shortcut in e.g. template callbacks, can use `$vuespa.update('propName', 'shoe', 32)` to place the call to `api_shoe` and then set the resulting value in `propName`.
 
 History:
+* 2020-01-06 - 0.2.6 release.  Use IPv4 host by default, since e.g. Docker has issues with IPv6.
 * 2019-12-18 - 0.2.5 release built.  Better documentation (shows $vuespa.call), and randomly select port unless otherwise specified.
 * 2019-10-21 - 0.2.3 release.
 
