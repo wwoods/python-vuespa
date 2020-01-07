@@ -13,7 +13,7 @@
 
         vuespa.VueSpa('vue.app', Client).run()
 
-   Optionally, may specify `vuespa.VueSpa('vue.app', Client, port=8080).run()` to run on ports 8080, 8081, and 8082.
+   Optionally, may specify `vuespa.VueSpa('vue.app', Client, port=8080).run()` to run on ports 8080 (webserver and websocket) and 8081 (Vue dev server).
 
 2. Create app via ``vue create vue.app``.
 
@@ -57,7 +57,6 @@ import re
 import sys
 import traceback
 import webbrowser
-import websockets
 
 _log = logging.getLogger('vuespa')
 
@@ -74,10 +73,6 @@ class VueSpa:
     def port_vue(self):
         return self._port_vue
 
-    @property
-    def port_ws(self):
-        return self._port_ws
-
     def __init__(self, vue_path, client_class, host=None, port=None,
             development=True):
         self._vue_path = vue_path
@@ -92,7 +87,6 @@ class VueSpa:
             self._host = '127.0.0.1'
         self._port = port
         self._port_vue = None
-        self._port_ws = None
 
 
     def run(self):
@@ -105,20 +99,16 @@ class VueSpa:
 
         html_app = web.Application()
         html_app.router.add_get('/vuespa.js', self._handle_vuespa_js)
+        html_app.router.add_get('/vuespa.ws', self._handle_vuespa_ws)
         html_app.router.add_get('/{path:.*}', self._handle_vue)
 
         # Run the application on a randomly selected port (or specified port)
         if self._port is not None:
             self._port_vue = self._port + 1
-            self._port_ws = self._port + 2
         html_server_handler = html_app.make_handler()
         html_server = loop.run_until_complete(
                 loop.create_server(html_server_handler, self.host, self._port))
         self._port = html_server.sockets[0].getsockname()[1]
-
-        ws_server = loop.run_until_complete(websockets.serve(
-                self._handle_ws, self.host, self._port_ws))
-        self._port_ws = ws_server.sockets[0].getsockname()[1]
 
         # Install node packages if no node_modules folder.
         if not os.path.lexists(os.path.join(self._vue_path, 'node_modules')):
@@ -179,8 +169,6 @@ class VueSpa:
         finally:
             if ui_proc is not None:
                 ui_proc.kill()
-            ws_server.close()
-            loop.run_until_complete(ws_server.wait_closed())
             html_server.close()
             loop.run_until_complete(html_server.wait_closed())
 
@@ -261,7 +249,7 @@ class VueSpa:
 
 
     async def _handle_vuespa_js(self, req):
-        ws_string = f'ws://{self.host}:{self.port_ws}'
+        ws_string = f'ws://{self.host}:{self.port}/vuespa.ws'
         body = """
             VueSpaBackend = {
                 install: function(Vue) {
@@ -352,43 +340,50 @@ class VueSpa:
         return web.Response(body=body, content_type='text/javascript')
 
 
-    async def _handle_ws(self, websocket, path):
+    async def _handle_vuespa_ws(self, req):
+        websocket = web.WebSocketResponse()
+        await websocket.prepare(req)
+
         client = self._client_class(websocket)
         if hasattr(client, 'vuespa_on_open'):
             await client.vuespa_on_open()
 
         async for msg in websocket:
-            try:
-                msg = json.loads(msg)
-                if msg['type'] == 'call':
-                    call_id = msg['id']
-                    meth = msg['meth']
-                    args = msg['args']
+            if msg.type == aiohttp.WSMsgType.TEXT:
+                try:
+                    msg = json.loads(msg.data)
+                    if msg['type'] == 'call':
+                        call_id = msg['id']
+                        meth = msg['meth']
+                        args = msg['args']
 
-                    api_meth = f'api_{meth}'
+                        api_meth = f'api_{meth}'
 
-                    try:
-                        _log.info(f'Calling {api_meth}(*{args})')
-                        response = await getattr(client, api_meth)(*args)
-                        await websocket.send(json.dumps({
-                                'type': 'resp',
-                                'id': call_id,
-                                'r': response,
-                        }))
-                    except:
-                        await websocket.send(json.dumps({
-                                'type': 'resp',
-                                'id': call_id,
-                                'err': traceback.format_exc()
-                        }))
-                        raise
-                else:
-                    raise NotImplementedError(msg['type'])
-            except:
-                _log.exception(f'When handling {msg} from {websocket.remote_address}')
+                        try:
+                            _log.info(f'Calling {api_meth}(*{args})')
+                            response = await getattr(client, api_meth)(*args)
+                            await websocket.send_str(json.dumps({
+                                    'type': 'resp',
+                                    'id': call_id,
+                                    'r': response,
+                            }))
+                        except:
+                            await websocket.send_str(json.dumps({
+                                    'type': 'resp',
+                                    'id': call_id,
+                                    'err': traceback.format_exc()
+                            }))
+                            raise
+                    else:
+                        raise NotImplementedError(msg['type'])
+                except:
+                    _log.exception(f'When handling {msg} from {websocket.remote_address}')
+            else:
+                _log.error(f'Cannot handle {msg} from {websocket.remote_address}')
 
         if hasattr(client, 'vuespa_on_close'):
             await client.vuespa_on_close()
+        return websocket
 
 
 
