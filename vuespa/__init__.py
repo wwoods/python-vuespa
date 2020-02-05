@@ -243,6 +243,7 @@ class VueSpa:
                             if self._first_request:
                                 self._first_request = False
 
+                            print(response.headers)
                             return web.Response(body=await response.read(),
                                     headers=response.headers.copy(),
                                     status=response.status)
