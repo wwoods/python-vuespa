@@ -233,8 +233,12 @@ class VueSpa:
             async with aiohttp.ClientSession() as session:
                 while True:
                     try:
-                        async with session.get(
+                        async with session.request(
+                                req.method,
                                 f'http://{self.host}:{self.port_vue}/{path}'
+                                headers=req.headers,
+                                params=req.rel_url.query,
+                                data = await request.read(),
                                 ) as response:
                             if self._first_request:
                                 self._first_request = False
