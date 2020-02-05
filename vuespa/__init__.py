@@ -243,8 +243,12 @@ class VueSpa:
                             if self._first_request:
                                 self._first_request = False
 
-                            print(response.headers)
-                            return web.Response(body=await response.read(),
+                            body = await response.read()
+                            headers = response.headers.copy()
+                            if 'Transfer-Encoding' in headers:
+                                del headers['Transfer-Encoding']
+                                headers['Content-Length'] = len(body)
+                            return web.Response(body=body,
                                     headers=response.headers.copy(),
                                     status=response.status)
                     except (aiohttp.client_exceptions.ClientConnectorError,
