@@ -101,6 +101,7 @@ class VueSpa:
         html_app.router.add_get('/vuespa.js', self._handle_vuespa_js)
         html_app.router.add_get('/vuespa.ws', self._handle_vuespa_ws)
         html_app.router.add_get('/{path:.*}', self._handle_vue)
+        html_app.router.add_post('/{path:.*}', self._handle_vue)
 
         # Run the application on a randomly selected port (or specified port)
         if self._port is not None:
@@ -195,7 +196,6 @@ class VueSpa:
                         *path.split('/')), 'rb').read())
         elif 'Upgrade' in req.headers:
             # Forward Vue's websocket.
-            print('FORWARDING WEBSOCKET')
             ws_response = web.WebSocketResponse()
             await ws_response.prepare(req)
             async with aiohttp.ClientSession().ws_connect(
