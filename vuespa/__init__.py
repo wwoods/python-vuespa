@@ -249,7 +249,7 @@ class VueSpa:
                                 del headers['Transfer-Encoding']
                                 headers['Content-Length'] = str(len(body))
                             return web.Response(body=body,
-                                    headers=response.headers.copy(),
+                                    headers=headers,
                                     status=response.status)
                     except (aiohttp.client_exceptions.ClientConnectorError,
                             aiohttp.client_exceptions.ClientOSError):
