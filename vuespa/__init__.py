@@ -247,7 +247,7 @@ class VueSpa:
                             headers = response.headers.copy()
                             if 'Transfer-Encoding' in headers:
                                 del headers['Transfer-Encoding']
-                                headers['Content-Length'] = len(body)
+                                headers['Content-Length'] = str(len(body))
                             return web.Response(body=body,
                                     headers=response.headers.copy(),
                                     status=response.status)
