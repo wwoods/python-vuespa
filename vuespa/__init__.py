@@ -235,7 +235,7 @@ class VueSpa:
                     try:
                         async with session.request(
                                 req.method,
-                                f'http://{self.host}:{self.port_vue}/{path}'
+                                f'http://{self.host}:{self.port_vue}/{path}',
                                 headers=req.headers,
                                 params=req.rel_url.query,
                                 data = await request.read(),
