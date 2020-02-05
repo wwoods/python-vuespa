@@ -193,11 +193,9 @@ class VueSpa:
             return web.Response(content_type=ctype,
                     body=open(os.path.join(self._vue_path, 'dist',
                         *path.split('/')), 'rb').read())
-        elif (req.headers['connection'] == 'Upgrade'
-                and req.headers['upgrade'] == 'websocket'
-                and req.method == 'GET'):
-            # Forward Vue's websocket?  Doesn't seem to actually hit this bit
-            # of code.
+        elif 'Upgrade' in req.headers:
+            # Forward Vue's websocket.
+            print('FORWARDING WEBSOCKET')
             ws_response = web.WebSocketResponse()
             await ws_response.prepare(req)
             async with aiohttp.ClientSession().ws_connect(
