@@ -218,6 +218,7 @@ class VueSpa:
                         else:
                             raise ValueError(f'Unknown ws message: {msg}')
 
+                print("WEBSOCKET OPEN")
                 async with session.ws_connect(
                         f'ws://{self.host}:{self.port_vue}/{path}'
                         ) as ws_client:
@@ -227,6 +228,7 @@ class VueSpa:
                                 ws_forward(ws_response, ws_client),
                                 ws_forward(ws_client, ws_response)],
                             return_when=asyncio.FIRST_COMPLETED)
+                print("WEBSOCKET CLOSED")
 
             return ws_response
         else:
