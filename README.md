@@ -51,6 +51,7 @@ Example usage (from `vuespa/__init__.py`):
 As a shortcut in e.g. template callbacks, can use `$vuespa.update('propName', 'shoe', 32)` to place the call to `api_shoe` and then set the resulting value in `propName`.
 
 History:
+* 2020-02-04 - 0.2.7 release.  Fixed an error from moving to aiohttp websocket.  Fixed vue serve hot reloading.
 * 2020-01-06 - 0.2.6 release.  A few things:
   * Use IPv4 host by default, since e.g. Docker has issues with IPv6.
   * Only use one port (instead of one for HTTP and a separate port for websocket).  This is to make Docker usage easier.  Note that for development, the Vue development port will not be forwarded by default.

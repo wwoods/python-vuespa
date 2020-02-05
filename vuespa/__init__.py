@@ -377,9 +377,9 @@ class VueSpa:
                     else:
                         raise NotImplementedError(msg['type'])
                 except:
-                    _log.exception(f'When handling {msg} from {websocket.remote_address}')
+                    _log.exception(f'When handling {msg} from {req.remote}')
             else:
-                _log.error(f'Cannot handle {msg} from {websocket.remote_address}')
+                _log.error(f'Cannot handle {msg} from {req.remote}')
 
         if hasattr(client, 'vuespa_on_close'):
             await client.vuespa_on_close()
