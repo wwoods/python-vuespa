@@ -238,7 +238,7 @@ class VueSpa:
                                 f'http://{self.host}:{self.port_vue}/{path}',
                                 headers=req.headers,
                                 params=req.rel_url.query,
-                                data = await request.read(),
+                                data = await req.read(),
                                 ) as response:
                             if self._first_request:
                                 self._first_request = False
