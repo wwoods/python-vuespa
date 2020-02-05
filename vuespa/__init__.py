@@ -204,6 +204,7 @@ class VueSpa:
                     async for msg in ws_from:
                         mt = msg.type
                         md = msg.data
+                        print(f'GOT {mt} FROM {ws_from}')
                         if mt == aiohttp.WSMsgType.TEXT:
                             await ws_to.send_str(md)
                         elif mt == aiohttp.WSMsgType.BINARY:
@@ -218,17 +219,17 @@ class VueSpa:
                         else:
                             raise ValueError(f'Unknown ws message: {msg}')
 
-                print("WEBSOCKET OPEN")
                 async with session.ws_connect(
                         f'ws://{self.host}:{self.port_vue}/{path}'
                         ) as ws_client:
+                    print(f"WEBSOCKET OPEN: {ws_client} -> {ws_response}")
                     # keep forwarding websocket data until one side stops
                     await asyncio.wait(
                             [
                                 ws_forward(ws_response, ws_client),
                                 ws_forward(ws_client, ws_response)],
                             return_when=asyncio.FIRST_COMPLETED)
-                print("WEBSOCKET CLOSED")
+                    print("WEBSOCKET CLOSED")
 
             return ws_response
         else:
