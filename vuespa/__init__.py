@@ -196,10 +196,10 @@ class VueSpa:
                         *path.split('/')), 'rb').read())
         elif 'Upgrade' in req.headers:
             # Forward Vue's websocket.
-            ws_response = web.WebSocketResponse()
-            await ws_response.prepare(req)
-            async with aiohttp.ClientSession().ws_connect(
-                    f'ws://{self.host}:{self.port_vue}/{path}') as ws_client:
+            async with aiohttp.ClientSession() as session:
+                ws_response = web.WebSocketResponse()
+                await ws_response.prepare(req)
+
                 async def ws_forward(ws_from, ws_to):
                     async for msg in ws_from:
                         mt = msg.type
@@ -218,12 +218,15 @@ class VueSpa:
                         else:
                             raise ValueError(f'Unknown ws message: {msg}')
 
-                # keep forwarding websocket data until one side stops
-                await asyncio.wait(
-                        [
-                            ws_forward(ws_response, ws_client),
-                            ws_forward(ws_client, ws_response)],
-                        return_when=asyncio.FIRST_COMPLETED)
+                async with session.ws_connect(
+                        f'ws://{self.host}:{self.port_vue}/{path}'
+                        ) as ws_client:
+                    # keep forwarding websocket data until one side stops
+                    await asyncio.wait(
+                            [
+                                ws_forward(ws_response, ws_client),
+                                ws_forward(ws_client, ws_response)],
+                            return_when=asyncio.FIRST_COMPLETED)
 
             return ws_response
         else:
