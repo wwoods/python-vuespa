@@ -144,7 +144,7 @@ class VueSpa:
                             flags=re.M | re.DOTALL))
 
             ui_proc = loop.run_until_complete(asyncio.create_subprocess_shell(
-                f"FORCE_COLOR=1 npx --no-install vue-cli-service serve --public localhost:{self._port}",
+                f"FORCE_COLOR=1 npx --no-install vue-cli-service serve",
                 stdout=asyncio.subprocess.PIPE,
                 # Leave stderr connected
                 cwd=self._vue_path))
