@@ -122,7 +122,7 @@ class VueSpa:
         if self._development:
             # Ensure node process is installed first.
             ui_proc = loop.run_until_complete(asyncio.create_subprocess_shell(
-                "FORCE_COLOR=1 npx --no-install vue-cli-service serve --public localhost:8123",
+                f"FORCE_COLOR=1 npx --no-install vue-cli-service serve --public {self._host}:{self._port}",
                 stdout=asyncio.subprocess.PIPE,
                 # Leave stderr connected
                 cwd=self._vue_path))
