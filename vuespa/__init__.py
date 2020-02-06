@@ -122,7 +122,11 @@ class VueSpa:
         if self._development:
             # Ensure node process is installed first.
             ui_proc = loop.run_until_complete(asyncio.create_subprocess_shell(
-                f"FORCE_COLOR=1 npx --no-install vue-cli-service serve --public {self._host}:{self._port}",
+                # Note use of localhost for public address.  This avoids
+                # excessive websocket closing, instead of needing client UI
+                # to manually modify vue.config.js.  See
+                # https://github.com/vuejs-templates/webpack/issues/1205
+                f"FORCE_COLOR=1 npx --no-install vue-cli-service serve --public localhost:{self._port}",
                 stdout=asyncio.subprocess.PIPE,
                 # Leave stderr connected
                 cwd=self._vue_path))
