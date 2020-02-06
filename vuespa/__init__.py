@@ -101,6 +101,7 @@ class VueSpa:
         html_app.router.add_get('/vuespa.js', self._handle_vuespa_js)
         html_app.router.add_get('/vuespa.ws', self._handle_vuespa_ws)
         html_app.router.add_get('/{path:.*}', self._handle_vue)
+        html_app.router.add_post('/{path:.*}', self._handle_vue)
 
         # Run the application on a randomly selected port (or specified port)
         if self._port is not None:
@@ -120,8 +121,30 @@ class VueSpa:
         ui_proc = None
         if self._development:
             # Ensure node process is installed first.
+
+            # BUT FIRST, work around excessive websocket closing.
+            # See https://github.com/vuejs-templates/webpack/issues/1205
+            vue_config_path = os.path.join(self._vue_path, 'vue.config.js')
+            with open(vue_config_path) as f:
+                js_src = f.read()
+            js_pat = r'(module\.exports *= *)(.*)'
+            m = re.search(js_pat, js_src, flags=re.M | re.DOTALL)
+            if m is not None:
+                try:
+                    j = json.loads(m.group(2))
+                except:
+                    raise ValueError(f"Looks like {vue_config_path} has invalid JSON: {m.group(2)}")
+                if not j.get('devServer', {}).get('disableHostCheck', False):
+                    j.setdefault('devServer', {})
+                    j['devServer']['disableHostCheck'] = True
+                    with open(vue_config_path, 'w') as f:
+                        f.write(re.sub(js_pat,
+                            lambda m: m.group(1) + json.dumps(j, indent=2),
+                            js_src,
+                            flags=re.M | re.DOTALL))
+
             ui_proc = loop.run_until_complete(asyncio.create_subprocess_shell(
-                "FORCE_COLOR=1 npx --no-install vue-cli-service serve",
+                f"FORCE_COLOR=1 npx --no-install vue-cli-service serve",
                 stdout=asyncio.subprocess.PIPE,
                 # Leave stderr connected
                 cwd=self._vue_path))
@@ -193,15 +216,12 @@ class VueSpa:
             return web.Response(content_type=ctype,
                     body=open(os.path.join(self._vue_path, 'dist',
                         *path.split('/')), 'rb').read())
-        elif (req.headers['connection'] == 'Upgrade'
-                and req.headers['upgrade'] == 'websocket'
-                and req.method == 'GET'):
-            # Forward Vue's websocket?  Doesn't seem to actually hit this bit
-            # of code.
-            ws_response = web.WebSocketResponse()
-            await ws_response.prepare(req)
-            async with aiohttp.ClientSession().ws_connect(
-                    f'ws://{self.host}:{self.port_vue}/{path}') as ws_client:
+        elif 'Upgrade' in req.headers:
+            # Forward Vue's websocket.
+            async with aiohttp.ClientSession() as session:
+                ws_response = web.WebSocketResponse()
+                await ws_response.prepare(req)
+
                 async def ws_forward(ws_from, ws_to):
                     async for msg in ws_from:
                         mt = msg.type
@@ -220,12 +240,15 @@ class VueSpa:
                         else:
                             raise ValueError(f'Unknown ws message: {msg}')
 
-                # keep forwarding websocket data until one side stops
-                await asyncio.wait(
-                        [
-                            ws_forward(ws_response, ws_client),
-                            ws_forward(ws_client, ws_response)],
-                        return_when=asyncio.FIRST_COMPLETED)
+                async with session.ws_connect(
+                        f'ws://{self.host}:{self.port_vue}/{path}'
+                        ) as ws_client:
+                    # keep forwarding websocket data until one side stops
+                    await asyncio.wait(
+                            [
+                                ws_forward(ws_response, ws_client),
+                                ws_forward(ws_client, ws_response)],
+                            return_when=asyncio.FIRST_COMPLETED)
 
             return ws_response
         else:
@@ -233,14 +256,23 @@ class VueSpa:
             async with aiohttp.ClientSession() as session:
                 while True:
                     try:
-                        async with session.get(
-                                f'http://{self.host}:{self.port_vue}/{path}'
+                        async with session.request(
+                                req.method,
+                                f'http://{self.host}:{self.port_vue}/{path}',
+                                headers=req.headers,
+                                params=req.rel_url.query,
+                                data = await req.read(),
                                 ) as response:
                             if self._first_request:
                                 self._first_request = False
 
-                            return web.Response(body=await response.read(),
-                                    headers=response.headers.copy(),
+                            body = await response.read()
+                            headers = response.headers.copy()
+                            if 'Transfer-Encoding' in headers:
+                                del headers['Transfer-Encoding']
+                                headers['Content-Length'] = str(len(body))
+                            return web.Response(body=body,
+                                    headers=headers,
                                     status=response.status)
                     except (aiohttp.client_exceptions.ClientConnectorError,
                             aiohttp.client_exceptions.ClientOSError):
@@ -377,9 +409,9 @@ class VueSpa:
                     else:
                         raise NotImplementedError(msg['type'])
                 except:
-                    _log.exception(f'When handling {msg} from {websocket.remote_address}')
+                    _log.exception(f'When handling {msg} from {req.remote}')
             else:
-                _log.error(f'Cannot handle {msg} from {websocket.remote_address}')
+                _log.error(f'Cannot handle {msg} from {req.remote}')
 
         if hasattr(client, 'vuespa_on_close'):
             await client.vuespa_on_close()
