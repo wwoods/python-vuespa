@@ -127,7 +127,7 @@ class VueSpa:
             with open(os.path.join(self._vue_path, 'vue.config.js')) as f:
                 js_src = f.read()
             js_pat = r'(module\.exports *= *)(.*)'
-            m = re.search(js_pat, js_src, flags=re.M)
+            m = re.search(js_pat, js_src, flags=re.M | re.DOTALL)
             if m is not None:
                 j = json.loads(m.group(2))
                 if not j.get('devServer', {}).get('disableHostCheck', False):
@@ -137,7 +137,7 @@ class VueSpa:
                         f.write(re.sub(js_pat,
                             lambda m: m.group(1) + json.dumps(j, indent=2),
                             js_src,
-                            flags=re.M))
+                            flags=re.M | re.DOTALL))
 
             ui_proc = loop.run_until_complete(asyncio.create_subprocess_shell(
                 f"FORCE_COLOR=1 npx --no-install vue-cli-service serve --public localhost:{self._port}",
