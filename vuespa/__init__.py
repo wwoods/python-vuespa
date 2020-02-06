@@ -124,16 +124,20 @@ class VueSpa:
 
             # BUT FIRST, work around excessive websocket closing.
             # See https://github.com/vuejs-templates/webpack/issues/1205
-            with open(os.path.join(self._vue_path, 'vue.config.js')) as f:
+            vue_config_path = os.path.join(self._vue_path, 'vue.config.js')
+            with open(vue_config_path) as f:
                 js_src = f.read()
             js_pat = r'(module\.exports *= *)(.*)'
             m = re.search(js_pat, js_src, flags=re.M | re.DOTALL)
             if m is not None:
-                j = json.loads(m.group(2))
+                try:
+                    j = json.loads(m.group(2))
+                except:
+                    raise ValueError(f"Looks like {vue_config_path} has invalid JSON: {m.group(2)}")
                 if not j.get('devServer', {}).get('disableHostCheck', False):
                     j.setdefault('devServer', {})
                     j['devServer']['disableHostCheck'] = True
-                    with open(os.path.join(self._vue_path, 'vue.config.js'), 'w') as f:
+                    with open(vue_config_path, 'w') as f:
                         f.write(re.sub(js_pat,
                             lambda m: m.group(1) + json.dumps(j, indent=2),
                             js_src,
