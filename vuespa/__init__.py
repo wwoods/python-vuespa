@@ -133,7 +133,7 @@ class VueSpa:
                 if not j.get('devServer', {}).get('disableHostCheck', False):
                     j.setdefault('devServer', {})
                     j['devServer']['disableHostCheck'] = True
-                    with open(os.path.join(self._vue_path, 'vue.config.js')) as f:
+                    with open(os.path.join(self._vue_path, 'vue.config.js'), 'w') as f:
                         f.write(re.sub(js_pat,
                             lambda m: m.group(1) + json.dumps(j, indent=2),
                             js_src,
