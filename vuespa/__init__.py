@@ -111,8 +111,14 @@ class VueSpa:
                 loop.create_server(html_server_handler, self.host, self._port))
         self._port = html_server.sockets[0].getsockname()[1]
 
+        dist_exists = os.path.lexists(os.path.join(self._vue_path, 'dist'))
+        needs_npm_mod = self._development or not dist_exists
+
         # Install node packages if no node_modules folder.
-        if not os.path.lexists(os.path.join(self._vue_path, 'node_modules')):
+        if (
+                needs_npm_mod
+                and not os.path.lexists(os.path.join(
+                    self._vue_path, 'node_modules'))):
             node_install = loop.run_until_complete(asyncio.create_subprocess_shell(
                 'npm install', cwd=self._vue_path))
             loop.run_until_complete(node_install.communicate())
@@ -171,7 +177,7 @@ class VueSpa:
             self._port_vue = int(m.group('port'))
             promises.append(streamer(ui_proc.stdout, sys.stdout))
             promises.append(ui_proc.wait())
-        elif not os.path.lexists(os.path.join(self._vue_path, 'dist')):
+        elif not dist_exists:
             # Build UI once, otherwise use cached version
             proc = loop.run_until_complete(asyncio.create_subprocess_shell(
                 'npm run build', cwd=self._vue_path))
