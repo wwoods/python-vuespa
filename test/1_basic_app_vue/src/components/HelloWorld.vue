@@ -1,7 +1,7 @@
 <template>
   <div class="hello">
     <h1>{{ msg }}</h1>
-    <p> Vuespa says {{ vuespa }} </p>
+    <p> Vuespa says {{ vuespa }}; POST url is <a :href="vuespaUrl">{{ vuespaUrl }}</a> </p>
     <p>
       For a guide and recipes on how to configure / customize this project,<br>
       check out the
@@ -41,10 +41,15 @@ export default Vue.extend({
   data() {
     return {
       vuespa: 'waiting...',
+      vuespaUrl: null as null | string,
     };
   },
   mounted() {
     this.$vuespa.update('vuespa', 'shoe', {some: 'data'});
+    this.$vuespa.httpHandler(
+        (v: string) => {this.vuespaUrl = v;},
+        {showFile: (args: any) => {console.log(args);}},
+    );
   }
 });
 </script>

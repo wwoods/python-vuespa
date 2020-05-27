@@ -1,4 +1,6 @@
-"""Example usage:
+"""A combined Python + Vue.js Single Page Application (SPA) framework.
+
+Example usage (from `vuespa/__init__.py`):
 
 1. Write Python API:
 
@@ -7,6 +9,7 @@
             async def vuespa_on_open(self):
                 print("Client connected!")
 
+            # vuespa_on_close exists, too
 
             async def api_shoe(self, arg1):
                 return f'Got {arg1}'
@@ -32,7 +35,18 @@
         declare module 'vue' {
           export default interface Vue {
             $vuespa: {
-              call: (fn: string, ...args: any[]),
+              // Call a remote method, and return the result
+              call: (fn: string, ...args: any[]) => Promise<any>,
+              /** Set up a handler for HTTP endpoints. First argument is a function
+                called whenever the websocket's identity changes. The second argument is
+                a list of available handlers, each of which take one argument, which holds
+                the query parameters given to the HTTP request.
+
+                Returns: a function which, when called, unbinds the handler. Often,
+                this belongs in Vue's ``beforeDestroy`` callback.
+                */
+              httpHandler: (cb: {(url: string): void}, fns: {[name: string]: {(args: any): void}}) => {(): void},
+              // Call a remote method, and update `name` on this local Vue instance.
               update: (name: string, fn: string, ...args: any[]),
             };
           }
@@ -53,6 +67,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
 import sys
 import traceback
@@ -74,10 +89,40 @@ class VueSpa:
         return self._port_vue
 
     def __init__(self, vue_path, client_class, host=None, port=None,
-            development=True):
+            development=True, config_web_callback=None):
+        """
+        Args:
+            vue_path: File system path to Vue application.
+            client_class: Class (derived from `Client`) to instantiate per
+                websocket connection.
+            host: Host address to bind to.
+            port: Port to listen on.
+            development: True for Vue's development server; False to use the
+                dist folder.
+            config_web_callback: Callback which gets a `web.Application` object,
+                to which additional routes may be added. Useful for bolting on
+                plugins, often via IFrames which may communicate back with
+                the main tab over ``$vuespa.httpHandler``. The benefits of this
+                approach are that each plugin may be developed in any language
+                or framework, and do not need knowledge of the hosting page.
+                For ad hoc applications, this is occasionally useful.
+
+                Note that an alternative for simple pages is to load the page's
+                source code directly into the IFrame, with something like:
+
+                      // CRUCIAL: blob does weird UTF-16 conversion.
+                      // See https://blog.logrocket.com/binary-data-in-the-browser-untangling-an-encoding-mess-with-javascript-typed-arrays-119673c0f1fe/
+                      // string must be in UTF-8
+                      const u8 = new Uint8Array(newVal.length);
+                      for (let i = 0, m = newVal.length; i < m; i++) {
+                        u8[i] = newVal.charCodeAt(i);
+                      }
+                      (this.$refs.pluginIframe as any).src = URL.createObjectURL(new Blob([u8]));
+        """
         self._vue_path = vue_path
         self._client_class = client_class
         self._development = development
+        self._config_web_callback = config_web_callback
         self._first_request = True
         self._host = host
         if self._host is None and development:
@@ -87,6 +132,7 @@ class VueSpa:
             self._host = '127.0.0.1'
         self._port = port
         self._port_vue = None
+        self._websocket_clients = {}
 
 
     def run(self):
@@ -100,6 +146,22 @@ class VueSpa:
         html_app = web.Application()
         html_app.router.add_get('/vuespa.js', self._handle_vuespa_js)
         html_app.router.add_get('/vuespa.ws', self._handle_vuespa_ws)
+
+        # Now, allow the websocket to receive messages via HTTP requests.
+        # We want a new tab to be able to call '/api/blahws123/select?q=0096.pdf'
+        # and have this websocket select the right tab.
+        html_app.router.add_get('/vuespa.ws.http/{id}/{fn}',
+                self._handle_vuespa_ws_http)
+        html_app.router.add_post('/vuespa.ws.http/{id}/{fn}',
+                self._handle_vuespa_ws_http)
+        lame_response = lambda req: web.Response(content_type='text/plain',
+                body='Add /fn?arg=8 to URL to call `fn` with `{arg: 8}`')
+        html_app.router.add_get('/vuespa.ws.http/{id}', lame_response)
+        html_app.router.add_post('/vuespa.ws.http/{id}', lame_response)
+
+        if self._config_web_callback is not None:
+            self._config_web_callback(html_app)
+
         html_app.router.add_get('/{path:.*}', self._handle_vue)
         html_app.router.add_post('/{path:.*}', self._handle_vue)
 
@@ -131,23 +193,24 @@ class VueSpa:
             # BUT FIRST, work around excessive websocket closing.
             # See https://github.com/vuejs-templates/webpack/issues/1205
             vue_config_path = os.path.join(self._vue_path, 'vue.config.js')
-            with open(vue_config_path) as f:
-                js_src = f.read()
-            js_pat = r'(module\.exports *= *)(.*)'
-            m = re.search(js_pat, js_src, flags=re.M | re.DOTALL)
-            if m is not None:
-                try:
-                    j = json.loads(m.group(2))
-                except:
-                    raise ValueError(f"Looks like {vue_config_path} has invalid JSON: {m.group(2)}")
-                if not j.get('devServer', {}).get('disableHostCheck', False):
-                    j.setdefault('devServer', {})
-                    j['devServer']['disableHostCheck'] = True
-                    with open(vue_config_path, 'w') as f:
-                        f.write(re.sub(js_pat,
-                            lambda m: m.group(1) + json.dumps(j, indent=2),
-                            js_src,
-                            flags=re.M | re.DOTALL))
+            if os.path.lexists(vue_config_path):
+                with open(vue_config_path) as f:
+                    js_src = f.read()
+                js_pat = r'(module\.exports *= *)(.*)'
+                m = re.search(js_pat, js_src, flags=re.M | re.DOTALL)
+                if m is not None:
+                    try:
+                        j = json.loads(m.group(2))
+                    except:
+                        raise ValueError(f"Looks like {vue_config_path} has invalid JSON: {m.group(2)}")
+                    if not j.get('devServer', {}).get('disableHostCheck', False):
+                        j.setdefault('devServer', {})
+                        j['devServer']['disableHostCheck'] = True
+                        with open(vue_config_path, 'w') as f:
+                            f.write(re.sub(js_pat,
+                                lambda m: m.group(1) + json.dumps(j, indent=2),
+                                js_src,
+                                flags=re.M | re.DOTALL))
 
             ui_proc = loop.run_until_complete(asyncio.create_subprocess_shell(
                 f"FORCE_COLOR=1 npx --no-install vue-cli-service serve",
@@ -307,6 +370,10 @@ class VueSpa:
                         ws = VueSpaBackend._socket = new WebSocket('""" + ws_string + """');
                         ws.onopen = function(ev) {
                             console.log("WS open");
+                            VueSpaBackend.send(JSON.stringify({
+                                type: 'clientIdRequest',
+                                idOld: VueSpaBackend._clientId,
+                            }));
                         };
                         ws.onerror = function(ev) {
                             console.log("WS error... will close and retry");
@@ -314,6 +381,15 @@ class VueSpa:
                         };
                         ws.onmessage = VueSpaBackend._onmessage;
                         ws.onclose = function(ev) {
+                            // QoL for user on system suspend/resume, internet
+                            // disconnect/reconnect... Don't actually wipe the
+                            // clientId. Just set a flag that we're
+                            // disconnected, and keep the same internal
+                            // clientId. This keeps old tabs working, and as
+                            // the websockets are relatively stateless,
+                            // shouldn't have a problem picking back up.
+                            VueSpaBackend._setClientId(VueSpaBackend._clientId,
+                                    false);
                             console.log("WS closed... will retry");
                             setTimeout(ws_retry, 3000);
                         };
@@ -327,10 +403,26 @@ class VueSpa:
                     }
                     VueSpaBackend._socket.send(msg);
                 },
+                _setClientId: function(clientId, clientConnected) {
+                    VueSpaBackend._clientId = clientId;
+                    VueSpaBackend._clientConntected = clientConnected;
+
+                    let value = new URL('vuespa.ws.http/' + clientId, window.location).href;
+                    if (!clientConnected) value = null;
+                    for (const h of VueSpaBackend._httpHandlers) {
+                        h[0](value);
+                    }
+                },
+                _clientConnected: false,
+                _clientId: null,
+                _httpHandlers: [],
                 _socket: null,
                 _onmessage: function(event) {
                     let msg = JSON.parse(event.data);
-                    if (msg.type === 'resp') {
+                    if (msg.type === 'clientId') {
+                        VueSpaBackend._setClientId(msg.id, true);
+                    }
+                    else if (msg.type === 'resp') {
                         let p = VueSpaBackend._pending;
                         let callbacks = p.get(msg.id);
                         if (callbacks === undefined) {
@@ -346,6 +438,46 @@ class VueSpa:
                             callbacks[0](msg.r);
                         }
                     }
+                    else if (msg.type === 'http') {
+                        let unhandled = true, error = null, result;
+                        try {
+                            for (const h of VueSpaBackend._httpHandlers) {
+                                const hh = h[1];
+                                if (!hh.hasOwnProperty(msg.fn)) {
+                                    continue;
+                                }
+
+                                unhandled = false;
+                                result = hh[msg.fn](msg.args);
+                            }
+                        }
+                        catch (e) {
+                            error = e;
+                            console.error(e);
+                        }
+                        if (unhandled || error) {
+                            if (unhandled) {
+                                console.error(`No http callback for ${msg.fn}?`);
+                                if (!error) {
+                                    error = 'No http callback found.';
+                                }
+                            }
+                            VueSpaBackend.send(JSON.stringify({
+                                type: 'httpResp',
+                                id: msg.id,
+                                err: error,
+                                result: null,
+                            }));
+                        }
+                        else {
+                            VueSpaBackend.send(JSON.stringify({
+                                type: 'httpResp',
+                                id: msg.id,
+                                err: null,
+                                result: result || null,
+                            }));
+                        }
+                    }
                     else {
                         console.error(`Invalid message: ${msg.type}`);
                     }
@@ -359,6 +491,20 @@ class VueSpa:
                 constructor(obj) {
                     this._obj = obj;
                 }
+
+                /** Creates a listener for handling HTTP requests.
+                  */
+                httpHandler(newIdCallback, methodsArray) {
+                    const config = [newIdCallback, methodsArray];
+                    VueSpaBackend._httpHandlers.push(config);
+                    if (VueSpaBackend._clientId !== null)
+                        config[0](VueSpaBackend._clientId);
+                    return () => {
+                        VueSpaBackend._httpHandlers = VueSpaBackend._httpHandlers.filter(
+                                (x) => x !== config);
+                    };
+                }
+
                 async call(meth, ...args) {
                     let id = VueSpaBackend._pendingNext++;
                     let p = new Promise((resolve, reject) => {
@@ -383,49 +529,113 @@ class VueSpa:
         await websocket.prepare(req)
 
         client = self._client_class(websocket)
-        if hasattr(client, 'vuespa_on_open'):
-            await client.vuespa_on_open()
+        client_id = None
+        try:
+            if hasattr(client, 'vuespa_on_open'):
+                await client.vuespa_on_open()
 
-        async for msg in websocket:
-            if msg.type == aiohttp.WSMsgType.TEXT:
-                try:
-                    msg = json.loads(msg.data)
-                    if msg['type'] == 'call':
-                        call_id = msg['id']
-                        meth = msg['meth']
-                        args = msg['args']
+            async for msg in websocket:
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    try:
+                        msg = json.loads(msg.data)
+                        if msg['type'] == 'call':
+                            call_id = msg['id']
+                            meth = msg['meth']
+                            args = msg['args']
 
-                        api_meth = f'api_{meth}'
+                            api_meth = f'api_{meth}'
 
-                        try:
-                            _log.info(f'Calling {api_meth}(*{args})')
-                            response = await getattr(client, api_meth)(*args)
+                            try:
+                                _log.info(f'Calling {api_meth}(*{args})')
+                                response = await getattr(client, api_meth)(*args)
+                                await websocket.send_str(json.dumps({
+                                        'type': 'resp',
+                                        'id': call_id,
+                                        'r': response,
+                                }))
+                            except:
+                                await websocket.send_str(json.dumps({
+                                        'type': 'resp',
+                                        'id': call_id,
+                                        'err': traceback.format_exc()
+                                }))
+                                raise
+                        elif msg['type'] == 'clientIdRequest':
+                            # Synchronization note: this would require a lock
+                            # for threading; asyncio doesn't require a lock
+                            # where there's no `await`.
+                            maybe_client_id = msg['idOld']
+                            while True:
+                                if (maybe_client_id is not None
+                                        and self._websocket_clients.get(maybe_client_id)
+                                            is None):
+                                    break
+                                maybe_client_id = f'{random.getrandbits(128):032x}'
+                            client_id = maybe_client_id
+                            self._websocket_clients[client_id] = client
+
                             await websocket.send_str(json.dumps({
-                                    'type': 'resp',
-                                    'id': call_id,
-                                    'r': response,
+                                    'type': 'clientId',
+                                    'id': client_id,
                             }))
-                        except:
-                            await websocket.send_str(json.dumps({
-                                    'type': 'resp',
-                                    'id': call_id,
-                                    'err': traceback.format_exc()
-                            }))
-                            raise
-                    else:
-                        raise NotImplementedError(msg['type'])
-                except:
-                    _log.exception(f'When handling {msg} from {req.remote}')
-            else:
-                _log.error(f'Cannot handle {msg} from {req.remote}')
+                        elif msg['type'] == 'httpResp':
+                            http_resp = client._socket_http_reqs[msg['id']]
+                            http_resp['err'] = msg['err']
+                            http_resp['result'] = msg['result']
+                            http_resp['event'].set()
+                        else:
+                            raise NotImplementedError(msg['type'])
+                    except:
+                        _log.exception(f'When handling {msg} from {req.remote}')
+                else:
+                    _log.error(f'Cannot handle {msg} from {req.remote}')
 
-        if hasattr(client, 'vuespa_on_close'):
-            await client.vuespa_on_close()
+            if hasattr(client, 'vuespa_on_close'):
+                await client.vuespa_on_close()
+        finally:
+            if client_id is not None:
+                del self._websocket_clients[client_id]
         return websocket
+
+
+    async def _handle_vuespa_ws_http(self, req):
+        ws_id = req.match_info['id']
+        fn_id = req.match_info['fn']
+        ws_client = self._websocket_clients.get(ws_id)
+        if ws_client is None:
+            raise web.HTTPNotFound()
+
+        # Synchronization note: if threaded, this would need a lock. However,
+        # asyncio doesn't need a lock for code which does not include "await".
+        web_id = ws_client._socket_http_next
+        ws_client._socket_http_next += 1
+        ws_client._socket_http_reqs[web_id] = socket_req = {
+                'event': asyncio.Event(),
+                'result': None,
+                'err': None,
+        }
+        try:
+            await ws_client._socket.send_str(json.dumps({
+                'type': 'http',
+                'fn': fn_id,
+                'id': web_id,
+                'args': dict(req.query),
+            }))
+            await socket_req['event'].wait()
+        finally:
+            del ws_client._socket_http_reqs[web_id]
+
+        if socket_req['err'] is not None:
+            raise web.HTTPServerError(body=socket_req['err'])
+
+        return web.Response(body=socket_req['result'],
+                content_type='application/json')
 
 
 
 class Client:
     def __init__(self, socket):
         self._socket = socket
+        self._socket_http_next = 0
+        self._socket_http_reqs = {}
 

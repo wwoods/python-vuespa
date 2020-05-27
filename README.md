@@ -11,6 +11,7 @@ Example usage (from `vuespa/__init__.py`):
             async def vuespa_on_open(self):
                 print("Client connected!")
 
+            # vuespa_on_close exists, too
 
             async def api_shoe(self, arg1):
                 return f'Got {arg1}'
@@ -36,7 +37,18 @@ Example usage (from `vuespa/__init__.py`):
         declare module 'vue' {
           export default interface Vue {
             $vuespa: {
-              call: (fn: string, ...args: any[]),
+              // Call a remote method, and return the result
+              call: (fn: string, ...args: any[]) => Promise<any>,
+              /** Set up a handler for HTTP endpoints. First argument is a function
+                called whenever the websocket's identity changes. The second argument is
+                a list of available handlers, each of which take one argument, which holds
+                the query parameters given to the HTTP request.
+
+                Returns: a function which, when called, unbinds the handler. Often,
+                this belongs in Vue's ``beforeDestroy`` callback.
+                */
+              httpHandler: (cb: {(url: string): void}, fns: {[name: string]: {(args: any): void}}) => {(): void},
+              // Call a remote method, and update `name` on this local Vue instance.
               update: (name: string, fn: string, ...args: any[]),
             };
           }
@@ -51,6 +63,7 @@ Example usage (from `vuespa/__init__.py`):
 As a shortcut in e.g. template callbacks, can use `$vuespa.update('propName', 'shoe', 32)` to place the call to `api_shoe` and then set the resulting value in `propName`.
 
 History:
+* 2020-05-27 - 0.2.9 release. Websockets may now receive interactions via HTTP GET/POST requests, to allow child tabs from a Vuespa application to direct the parent tab. This is useful primarily for plugins, which execute code uncontrolled by the core application author, and might execute in an IFrame. Additionally, a `config_web_callback` method has been added which allows for registering arbitrary HTTP endpoints.
 * 2020-04-02 - 0.2.8 release.  Production mode no longer runs 'npm install' if dist folder exists already.
 * 2020-02-04 - 0.2.7 release.  Fixed an error from moving to aiohttp websocket.  Fixed vue serve hot reloading.
 * 2020-01-06 - 0.2.6 release.  A few things:
