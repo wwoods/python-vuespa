@@ -47,7 +47,7 @@ Example usage (from `vuespa/__init__.py`):
                 */
               httpHandler: (cb: {(url: string): void}, fns: {[name: string]: {(args: any): void}}) => {(): void},
               // Call a remote method, and update `name` on this local Vue instance.
-              update: (name: string, fn: string, ...args: any[]),
+              update: (name: string, fn: string, ...args: any[]) => Promise<void>,
             };
           }
         }
