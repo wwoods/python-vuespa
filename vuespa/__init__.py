@@ -403,11 +403,15 @@ class VueSpa:
                     }
                     VueSpaBackend._socket.send(msg);
                 },
+                _getClientApiUrl: function() {
+                    return new URL('vuespa.ws.http/' + VueSpaBackend._clientId,
+                            window.location).href;
+                },
                 _setClientId: function(clientId, clientConnected) {
                     VueSpaBackend._clientId = clientId;
                     VueSpaBackend._clientConntected = clientConnected;
 
-                    let value = new URL('vuespa.ws.http/' + clientId, window.location).href;
+                    let value = this._getClientApiUrl();
                     if (!clientConnected) value = null;
                     for (const h of VueSpaBackend._httpHandlers) {
                         h[0](value);
@@ -498,7 +502,7 @@ class VueSpa:
                     const config = [newIdCallback, methodsArray];
                     VueSpaBackend._httpHandlers.push(config);
                     if (VueSpaBackend._clientId !== null)
-                        config[0](VueSpaBackend._clientId);
+                        config[0](VueSpaBackend._getClientApiUrl());
                     return () => {
                         VueSpaBackend._httpHandlers = VueSpaBackend._httpHandlers.filter(
                                 (x) => x !== config);
@@ -615,11 +619,13 @@ class VueSpa:
                 'err': None,
         }
         try:
+            args = dict(await req.post())
+            args.update(req.query)
             await ws_client._socket.send_str(json.dumps({
                 'type': 'http',
                 'fn': fn_id,
                 'id': web_id,
-                'args': dict(req.query),
+                'args': args,
             }))
             await socket_req['event'].wait()
         finally:
