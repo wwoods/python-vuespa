@@ -533,7 +533,7 @@ class VueSpa:
 
 
     async def _handle_vuespa_ws(self, req):
-        websocket = web.WebSocketResponse()
+        websocket = web.WebSocketResponse(max_msg_size=self._max_msg_size)
         await websocket.prepare(req)
 
         client = self._client_class(websocket)
