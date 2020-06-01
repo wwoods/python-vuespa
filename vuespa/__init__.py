@@ -89,7 +89,7 @@ class VueSpa:
         return self._port_vue
 
     def __init__(self, vue_path, client_class, host=None, port=None,
-            development=True, config_web_callback=None):
+            development=True, config_web_callback=None, max_msg_size=1024**3):
         """
         Args:
             vue_path: File system path to Vue application.
@@ -118,6 +118,8 @@ class VueSpa:
                         u8[i] = newVal.charCodeAt(i);
                       }
                       (this.$refs.pluginIframe as any).src = URL.createObjectURL(new Blob([u8]));
+            max_msg_size: Maximum websocket message size that the server should
+                accept. Defaults to 1GB.
         """
         self._vue_path = vue_path
         self._client_class = client_class
@@ -133,6 +135,7 @@ class VueSpa:
         self._port = port
         self._port_vue = None
         self._websocket_clients = {}
+        self._max_msg_size = max_msg_size
 
 
     def run(self):
@@ -288,7 +291,8 @@ class VueSpa:
         elif 'Upgrade' in req.headers:
             # Forward Vue's websocket.
             async with aiohttp.ClientSession() as session:
-                ws_response = web.WebSocketResponse()
+                ws_response = web.WebSocketResponse(
+                        max_msg_size=self._max_msg_size)
                 await ws_response.prepare(req)
 
                 async def ws_forward(ws_from, ws_to):
