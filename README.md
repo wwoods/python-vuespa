@@ -63,6 +63,7 @@ Example usage (from `vuespa/__init__.py`):
 As a shortcut in e.g. template callbacks, can use `$vuespa.update('propName', 'shoe', 32)` to place the call to `api_shoe` and then set the resulting value in `propName`.
 
 History:
+* 2020-06-03 - 0.3.4 release. Better support for applications tunneled over a proxy.
 * 2020-06-01 - 0.3.3 release. Larger websocket messages allowed to server by default.
 * 2020-05-28 - 0.3.1 release. Fixes for websockets, mostly documentation, but also page load race condition.
 * 2020-05-27 - 0.2.9 release. Websockets may now receive interactions via HTTP GET/POST requests, to allow child tabs from a Vuespa application to direct the parent tab. This is useful primarily for plugins, which execute code uncontrolled by the core application author, and might execute in an IFrame. Additionally, a `config_web_callback` method has been added which allows for registering arbitrary HTTP endpoints.

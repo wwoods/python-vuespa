@@ -249,7 +249,7 @@ class VueSpa:
                 'npm run build', cwd=self._vue_path))
             loop.run_until_complete(proc.communicate())
 
-        webbrowser.open(f'http://{self.host}:{self.port}')
+        webbrowser.open(f'http://127.0.0.1:{self.port}')
         try:
             # Terminate either when a child process terminates OR when a
             # KeyboardInterrupt is sent.
@@ -314,7 +314,7 @@ class VueSpa:
                             raise ValueError(f'Unknown ws message: {msg}')
 
                 async with session.ws_connect(
-                        f'ws://{self.host}:{self.port_vue}/{path}'
+                        f'ws://127.0.0.1:{self.port_vue}/{path}'
                         ) as ws_client:
                     # keep forwarding websocket data until one side stops
                     await asyncio.wait(
@@ -331,7 +331,7 @@ class VueSpa:
                     try:
                         async with session.request(
                                 req.method,
-                                f'http://{self.host}:{self.port_vue}/{path}',
+                                f'http://127.0.0.1:{self.port_vue}/{path}',
                                 headers=req.headers,
                                 params=req.rel_url.query,
                                 data = await req.read(),
@@ -354,7 +354,6 @@ class VueSpa:
 
 
     async def _handle_vuespa_js(self, req):
-        ws_string = f'ws://{self.host}:{self.port}/vuespa.ws'
         body = """
             VueSpaBackend = {
                 install: function(Vue) {
@@ -371,7 +370,9 @@ class VueSpa:
 
                     let ws;
                     function ws_retry() {
-                        ws = VueSpaBackend._socket = new WebSocket('""" + ws_string + """');
+                        let ws_url = new URL('vuespa.ws', window.location);
+                        ws_url.protocol = 'ws:';
+                        ws = VueSpaBackend._socket = new WebSocket(ws_url.href);
                         ws.onopen = function(ev) {
                             console.log("WS open");
                             VueSpaBackend.send(JSON.stringify({
