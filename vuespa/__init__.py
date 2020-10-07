@@ -624,8 +624,9 @@ class VueSpa:
                 'err': None,
         }
         try:
-            args = dict(await req.post())
-            args.update(req.query)
+            args = dict(req.query)
+            if req.has_body:
+                args.update(await req.json())
             await ws_client._socket.send_str(json.dumps({
                 'type': 'http',
                 'fn': fn_id,
