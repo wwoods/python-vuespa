@@ -131,6 +131,10 @@ class VueSpa:
         self._first_request = True
         self._host = host
         self._port = port
+        if self._host is None and self._port is None:
+            # asyncio won't allow both to be None. We want a random port,
+            # so bind to localhost.
+            self._host = 'localhost'
         self._port_vue = None
         self._websocket_clients = {}
         self._max_msg_size = max_msg_size

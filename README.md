@@ -63,6 +63,7 @@ Example usage (from `vuespa/__init__.py`):
 As a shortcut in e.g. template callbacks, can use `$vuespa.update('propName', 'shoe', 32)` to place the call to `api_shoe` and then set the resulting value in `propName`.
 
 History:
+* 2021-02-11 - 0.3.7 release. If neither host nor port is specified, 'localhost' will be used as the host (resulting in a random port being selected).
 * 2021-02-11 - 0.3.6 release. Default bind to IPv4 and IPv6, and documentation update. Some docker containers were having issues as docker now will not translate an IPv6 request to an IPv4 one.
 * 2020-10-07 - 0.3.5 release. Support JSON body in XMLHttpRequest for GET/POST interactions, which is less confusing than encodeURIComponent with a query string.
 * 2020-06-03 - 0.3.4 release. Better support for applications tunneled over a proxy.
