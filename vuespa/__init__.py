@@ -95,7 +95,10 @@ class VueSpa:
             vue_path: File system path to Vue application.
             client_class: Class (derived from `Client`) to instantiate per
                 websocket connection.
-            host: Host address to bind to.
+            host: Host address to bind to. Using `None` will bind to all,
+                    including both IPv4 and IPv6 if it's available. May be a
+                    tuple of addresses to bind, but then they must share the
+                    same IPv#.
             port: Port to listen on.
             development: True for Vue's development server; False to use the
                 dist folder.
@@ -127,11 +130,6 @@ class VueSpa:
         self._config_web_callback = config_web_callback
         self._first_request = True
         self._host = host
-        if self._host is None and development:
-            # In e.g. Docker, 'localhost' would sometimes resolve to an IPV6
-            # address which is unsupported by some modules.  Better to clarify
-            # IPV4 support by using the localhost address directly.
-            self._host = '127.0.0.1'
         self._port = port
         self._port_vue = None
         self._websocket_clients = {}
@@ -249,7 +247,7 @@ class VueSpa:
                 'npm run build', cwd=self._vue_path))
             loop.run_until_complete(proc.communicate())
 
-        webbrowser.open(f'http://127.0.0.1:{self.port}')
+        webbrowser.open(f'http://localhost:{self.port}')
         try:
             # Terminate either when a child process terminates OR when a
             # KeyboardInterrupt is sent.
