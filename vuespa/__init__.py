@@ -545,61 +545,86 @@ class VueSpa:
             if hasattr(client, 'vuespa_on_open'):
                 await client.vuespa_on_open()
 
-            async for msg in websocket:
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    try:
-                        msg = json.loads(msg.data)
-                        if msg['type'] == 'call':
-                            call_id = msg['id']
-                            meth = msg['meth']
-                            args = msg['args']
+            # Since we only get one "await" per async thread, the naive
+            # implementation here would result in all requests waiting on one
+            # another in sequence. To allow parallelism on a single web socket,
+            # we use a queue to handle websocket communications, handling
+            # processing of messages and transmitting of results in the main
+            # thread, while doing work in another thread.
+            queue = asyncio.Queue()
 
-                            api_meth = f'api_{meth}'
+            async def ws_handle_call(call_id, api_meth, args):
+                try:
+                    _log.info(f'Calling {api_meth}(*{args}) for {req.remote}')
+                    response = await getattr(client, api_meth)(*args)
+                    await queue.put(json.dumps({
+                            'type': 'resp',
+                            'id': call_id,
+                            'r': response,
+                    }))
+                except:
+                    _log.exception(f'When handling {api_meth} from {req.remote}')
+                    await queue.put(json.dumps({
+                            'type': 'resp',
+                            'id': call_id,
+                            'err': traceback.format_exc(),
+                    }))
 
-                            try:
-                                _log.info(f'Calling {api_meth}(*{args})')
-                                response = await getattr(client, api_meth)(*args)
+            async def ws_listener():
+                """Never blocks reading inbound messages."""
+                nonlocal client_id
+
+                async for msg in websocket:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        try:
+                            msg = json.loads(msg.data)
+                            if msg['type'] == 'call':
+                                call_id = msg['id']
+                                meth = msg['meth']
+                                args = msg['args']
+
+                                api_meth = f'api_{meth}'
+                                # Create a new task to handle this callback,
+                                # eventually placing result on our queue.
+                                asyncio.create_task(ws_handle_call(call_id,
+                                        api_meth, args))
+                            elif msg['type'] == 'clientIdRequest':
+                                # Synchronization note: this would require a lock
+                                # for threading; asyncio doesn't require a lock
+                                # where there's no `await`.
+                                maybe_client_id = msg['idOld']
+                                while True:
+                                    if (maybe_client_id is not None
+                                            and self._websocket_clients.get(maybe_client_id)
+                                                is None):
+                                        break
+                                    maybe_client_id = f'{random.getrandbits(128):032x}'
+                                client_id = maybe_client_id
+                                self._websocket_clients[client_id] = client
+
+                                # This one can pause other requests, since we
+                                # *DO* want to handle it before generating
+                                # other responses.
                                 await websocket.send_str(json.dumps({
-                                        'type': 'resp',
-                                        'id': call_id,
-                                        'r': response,
+                                        'type': 'clientId',
+                                        'id': client_id,
                                 }))
-                            except:
-                                await websocket.send_str(json.dumps({
-                                        'type': 'resp',
-                                        'id': call_id,
-                                        'err': traceback.format_exc()
-                                }))
-                                raise
-                        elif msg['type'] == 'clientIdRequest':
-                            # Synchronization note: this would require a lock
-                            # for threading; asyncio doesn't require a lock
-                            # where there's no `await`.
-                            maybe_client_id = msg['idOld']
-                            while True:
-                                if (maybe_client_id is not None
-                                        and self._websocket_clients.get(maybe_client_id)
-                                            is None):
-                                    break
-                                maybe_client_id = f'{random.getrandbits(128):032x}'
-                            client_id = maybe_client_id
-                            self._websocket_clients[client_id] = client
+                            elif msg['type'] == 'httpResp':
+                                http_resp = client._socket_http_reqs[msg['id']]
+                                http_resp['err'] = msg['err']
+                                http_resp['result'] = msg['result']
+                                http_resp['event'].set()
+                            else:
+                                raise NotImplementedError(msg['type'])
+                        except:
+                            _log.exception(f'When handling {msg} from {req.remote}')
+                    else:
+                        _log.error(f'Cannot handle {msg} from {req.remote}')
 
-                            await websocket.send_str(json.dumps({
-                                    'type': 'clientId',
-                                    'id': client_id,
-                            }))
-                        elif msg['type'] == 'httpResp':
-                            http_resp = client._socket_http_reqs[msg['id']]
-                            http_resp['err'] = msg['err']
-                            http_resp['result'] = msg['result']
-                            http_resp['event'].set()
-                        else:
-                            raise NotImplementedError(msg['type'])
-                    except:
-                        _log.exception(f'When handling {msg} from {req.remote}')
-                else:
-                    _log.error(f'Cannot handle {msg} from {req.remote}')
+            listen_task = asyncio.create_task(ws_listener())
+            while not listen_task.done():
+                data = await queue.get()
+                await websocket.send_str(data)
 
             if hasattr(client, 'vuespa_on_close'):
                 await client.vuespa_on_close()

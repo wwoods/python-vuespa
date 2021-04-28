@@ -1,5 +1,6 @@
 
 import aiohttp.web as web
+import asyncio
 import vuespa
 
 class Client(vuespa.Client):
@@ -7,6 +8,11 @@ class Client(vuespa.Client):
         print("Client connected!")
     async def api_shoe(self, arg1):
         return f'Got {arg1}'
+
+    async def api_delay(self, delay):
+        await asyncio.sleep(delay)
+        return 'Done'
+
 
 async def handle_hello(req):
     return web.Response(body='Hello, world')

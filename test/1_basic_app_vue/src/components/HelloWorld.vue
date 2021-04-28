@@ -1,6 +1,7 @@
 <template>
   <div class="hello">
     <h1>{{ msg }}</h1>
+    <h1>Vuespa delay on 10x0.2-second sleeps was: {{ vuespaDelayed }}</h1>
     <p> Vuespa says {{ vuespa }}; POST url is <a :href="vuespaUrl">{{ vuespaUrl }}</a> </p>
     <p>
       For a guide and recipes on how to configure / customize this project,<br>
@@ -41,6 +42,7 @@ export default Vue.extend({
   data() {
     return {
       vuespa: 'waiting...',
+      vuespaDelayed: 'waiting...',
       vuespaUrl: null as null | string,
     };
   },
@@ -50,6 +52,13 @@ export default Vue.extend({
         (v: string) => {this.vuespaUrl = v;},
         {showFile: (args: any) => {console.log(args);}},
     );
+
+    (async () => {
+      const before = Date.now();
+      const promises = Array.from(Array(10).keys()).map(x => this.$vuespa.call('delay', 0.2));
+      await Promise.all(promises);
+      this.vuespaDelayed = `Took ${1e-3 * (Date.now() - before)} seconds`;
+    })().then(console.log);
   }
 });
 </script>
