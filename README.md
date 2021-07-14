@@ -25,34 +25,13 @@ Example usage (from `vuespa/__init__.py`):
 3. Edit ``vue.app/src/main.ts`` (if typescript) with:
 
         declare var VueSpaBackend: any;
-        Vue.use(VueSpaBackend);
+        Vue.use(VueSpaBackend); // or app.use(VueSpaBackend) for Vue 3+
 
 4. Edit ``vue.app/public/index.html`` with:
 
         <script src="<%= BASE_URL %>vuespa.js"></script>
 
-5. Create ``vue.app/src/shims-vuespa.d.ts``, to silence Typescript errors, with:
-
-        import Vue from 'vue';
-        declare module 'vue' {
-          export default interface Vue {
-            $vuespa: {
-              // Call a remote method, and return the result
-              call: (fn: string, ...args: any[]) => Promise<any>,
-              /** Set up a handler for HTTP endpoints. First argument is a function
-                called whenever the websocket's identity changes. The second argument is
-                a list of available handlers, each of which take one argument, which holds
-                the query parameters given to the HTTP request.
-
-                Returns: a function which, when called, unbinds the handler. Often,
-                this belongs in Vue's ``beforeDestroy`` callback.
-                */
-              httpHandler: (cb: {(url: string): void}, fns: {[name: string]: {(args: any): void}}) => {(): void},
-              // Call a remote method, and update `name` on this local Vue instance.
-              update: (name: string, fn: string, ...args: any[]) => Promise<void>,
-            };
-          }
-        }
+5. Save ``./shims-vuespa.d.ts`` from this repository to ``vue.app/src/shims-vuespa.d.ts``, to silence Typescript errors.
 
 6. Add calls to the server as:
 
@@ -63,6 +42,7 @@ Example usage (from `vuespa/__init__.py`):
 As a shortcut in e.g. template callbacks, can use `$vuespa.update('propName', 'shoe', 32)` to place the call to `api_shoe` and then set the resulting value in `propName`.
 
 History:
+* 2021-07-14 - 0.5.0 release. Vue 3.x support.
 * 2021-04-28 - 0.4.0 release. Parallelism for responses on a single web socket. Before, they would block one another, which was annoying for long-running tasks.
 * 2021-02-11 - 0.3.7 release. If neither host nor port is specified, 'localhost' will be used as the host (resulting in a random port being selected).
 * 2021-02-11 - 0.3.6 release. Default bind to IPv4 and IPv6, and documentation update. Some docker containers were having issues as docker now will not translate an IPv6 request to an IPv4 one.

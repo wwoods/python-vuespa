@@ -29,28 +29,7 @@ Example usage (from `vuespa/__init__.py`):
 
         <script src="<%= BASE_URL %>vuespa.js"></script>
 
-5. Create ``vue.app/src/shims-vuespa.d.ts``, to silence Typescript errors, with:
-
-        import Vue from 'vue';
-        declare module 'vue' {
-          export default interface Vue {
-            $vuespa: {
-              // Call a remote method, and return the result
-              call: (fn: string, ...args: any[]) => Promise<any>,
-              /** Set up a handler for HTTP endpoints. First argument is a function
-                called whenever the websocket's identity changes. The second argument is
-                a list of available handlers, each of which take one argument, which holds
-                the query parameters given to the HTTP request.
-
-                Returns: a function which, when called, unbinds the handler. Often,
-                this belongs in Vue's ``beforeDestroy`` callback.
-                */
-              httpHandler: (cb: {(url: string): void}, fns: {[name: string]: {(args: any): void}}) => {(): void},
-              // Call a remote method, and update `name` on this local Vue instance.
-              update: (name: string, fn: string, ...args: any[]) => Promise<void>,
-            };
-          }
-        }
+5. Copy ``shims-vuespa.d.ts`` from this repository to ``vue.app/src/shims-vuespa.d.ts``, to silence Typescript errors.
 
 6. Add calls to the server as:
 
@@ -364,7 +343,14 @@ class VueSpa:
                     }
                     VueSpaBackend.installed = true;
 
-                    Object.defineProperty(Vue.prototype, '$vuespa', {
+                    let Vue_obj = Vue.prototype;
+                    VueSpaBackend.Vue_is3 = false;
+                    if (Vue_obj === undefined) {
+                        // Vue 3
+                        Vue_obj = Vue.config.globalProperties;
+                        VueSpaBackend.Vue_is3 = true;
+                    }
+                    Object.defineProperty(Vue_obj, '$vuespa', {
                         get: function get () {
                             return new VueSpaBackendWrapper(this);
                         }
@@ -500,6 +486,10 @@ class VueSpa:
 
             class VueSpaBackendWrapper {
                 constructor(obj) {
+                    // IMPORTANT -- _obj CANNOT BE USED if VueSpaBackend.Vue_is3
+                    // Due to the change to config.globalProperties, the `this`
+                    // object points to the globalProperties object instead of
+                    // the Vue instance, so this value is invalid.
                     this._obj = obj;
                 }
 
@@ -528,6 +518,8 @@ class VueSpa:
                     return await p;
                 }
                 async update(prop, meth, ...args) {
+                    if (VueSpaBackend.Vue_is3) throw new Error(
+                            'Cannot use $vuespa.update() with Vue 3');
                     this._obj[prop] = await this.call(meth, ...args);
                 }
             }
