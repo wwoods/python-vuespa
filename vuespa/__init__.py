@@ -531,6 +531,8 @@ class VueSpa:
         websocket = web.WebSocketResponse(max_msg_size=self._max_msg_size)
         await websocket.prepare(req)
 
+        MAX_BROWSER_SIZE = 512 * 1024 ** 2
+
         client = self._client_class(websocket)
         client_id = None
         try:
@@ -549,11 +551,17 @@ class VueSpa:
                 try:
                     _log.info(f'Calling {api_meth}(*{args}) for {req.remote}')
                     response = await getattr(client, api_meth)(*args)
-                    await queue.put(json.dumps({
+                    msg = json.dumps({
                             'type': 'resp',
                             'id': call_id,
                             'r': response,
-                    }))
+                    })
+                    if len(msg) > MAX_BROWSER_SIZE:
+                        raise ValueError(f'Tried to send response of length {len(msg)}; '
+                                f'browsers like Chrome only have a max string length '
+                                f'of around {MAX_BROWSER_SIZE}, so would fail on '
+                                'receipt.')
+                    await queue.put(msg)
                 except:
                     _log.exception(f'When handling {api_meth} from {req.remote}')
                     await queue.put(json.dumps({

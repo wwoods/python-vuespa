@@ -13,6 +13,9 @@ class Client(vuespa.Client):
         await asyncio.sleep(delay)
         return 'Done'
 
+    async def api_huge(self):
+        return 'a' * (1024 * 1024 * 600)
+
 
 async def handle_hello(req):
     return web.Response(body='Hello, world')

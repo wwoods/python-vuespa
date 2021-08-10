@@ -13,7 +13,11 @@ export default Vue.extend({
   name: 'app',
   components: {
     HelloWorld
-  }
+  },
+  mounted() {
+    declare var window: any;
+    window.vuespa = this.$vuespa;
+  },
 });
 </script>
 

@@ -42,6 +42,7 @@ Example usage (from `vuespa/__init__.py`):
 As a shortcut in e.g. template callbacks, can use `$vuespa.update('propName', 'shoe', 32)` to place the call to `api_shoe` and then set the resulting value in `propName`.
 
 History:
+* 2021-08-10 - 0.5.1 release. Error if sending message > 512MB, as some browsers (notably Chrome) cannot load messages this large.
 * 2021-07-14 - 0.5.0 release. Vue 3.x support.
 * 2021-04-28 - 0.4.0 release. Parallelism for responses on a single web socket. Before, they would block one another, which was annoying for long-running tasks.
 * 2021-02-11 - 0.3.7 release. If neither host nor port is specified, 'localhost' will be used as the host (resulting in a random port being selected).
