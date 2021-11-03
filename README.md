@@ -41,7 +41,34 @@ Example usage (from `vuespa/__init__.py`):
 
 As a shortcut in e.g. template callbacks, can use `$vuespa.update('propName', 'shoe', 32)` to place the call to `api_shoe` and then set the resulting value in `propName`.
 
-History:
+## Reverse proxy (Nginx) forwarding
+`python-vuespa` uses a single port for both websocket and HTTP traffic. This makes it fairly simple to set up port forwarding, but with a reverse proxy, additional configuration may be necessary. Notably, to proxy from an SSL Nginx connection to a WSS secure websocket:
+
+```
+# WS must be separate
+location /vuespa.ws {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_read_timeout 3600;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    #proxy_connect_timeout 3600;
+    proxy_read_timeout 3600;
+}
+```
+
+Note that using SELinux (e.g., CentOS) may yield additional issues in the form of a 502 Bad Gateway response: https://stackoverflow.com/a/24830777
+
+## History
+* 2021-11-03 - 0.5.2 release. Support for `wss:` protocol when forwarded via HTTPS. Additional documentation to support.
 * 2021-08-10 - 0.5.1 release. Error if sending message > 512MB, as some browsers (notably Chrome) cannot load messages this large.
 * 2021-07-14 - 0.5.0 release. Vue 3.x support.
 * 2021-04-28 - 0.4.0 release. Parallelism for responses on a single web socket. Before, they would block one another, which was annoying for long-running tasks.

@@ -359,7 +359,7 @@ class VueSpa:
                     let ws;
                     function ws_retry() {
                         let ws_url = new URL('vuespa.ws', window.location);
-                        ws_url.protocol = 'ws:';
+                        ws_url.protocol = (window.location.protocol === 'https:' ? 'wss:' : 'ws:');
                         ws = VueSpaBackend._socket = new WebSocket(ws_url.href);
                         ws.onopen = function(ev) {
                             console.log("WS open");
